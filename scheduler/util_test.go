@@ -27,6 +27,71 @@ func TestMaterializeTaskGroups(t *testing.T) {
 	}
 }
 
+func newNode(name string) *structs.Node {
+	n := mock.Node()
+	n.Name = name
+	return n
+}
+
+func TestDiffSystemAllocsForNode_Sysbatch_terminal(t *testing.T) {
+	// For a sysbatch job, the scheduler should not re-place an allocation
+	// that has become terminal, unless the job has been updated.
+
+	job := mock.SystemBatchJob()
+	required := materializeTaskGroups(job)
+
+	eligible := map[string]*structs.Node{
+		"node1": newNode("node1"),
+	}
+
+	var live []*structs.Allocation // empty
+
+	tainted := map[string]*structs.Node(nil)
+
+	t.Run("current job", func(t *testing.T) {
+		terminal := map[string]*structs.Allocation{
+			"my-sysbatch.pings[0]": &structs.Allocation{
+				ID:     uuid.Generate(),
+				NodeID: "node1",
+				Name:   "my-sysbatch.pings[0]",
+				Job:    job,
+			},
+		}
+
+		diff := diffSystemAllocsForNode(job, "node1", eligible, tainted, required, live, terminal)
+		require.Empty(t, diff.place)
+		require.Empty(t, diff.update)
+		require.Empty(t, diff.stop)
+		require.Empty(t, diff.migrate)
+		require.Empty(t, diff.lost)
+		require.True(t, len(diff.ignore) == 1 && diff.ignore[0].Alloc == terminal["my-sysbatch.pings[0]"])
+	})
+
+	t.Run("outdated job", func(t *testing.T) {
+		previousJob := job.Copy()
+		previousJob.JobModifyIndex -= 1
+		terminal := map[string]*structs.Allocation{
+			"my-sysbatch.pings[0]": &structs.Allocation{
+				ID:     uuid.Generate(),
+				NodeID: "node1",
+				Name:   "my-sysbatch.pings[0]",
+				Job:    previousJob,
+			},
+		}
+
+		expAlloc := terminal["my-sysbatch.pings[0]"]
+		expAlloc.NodeID = "node1"
+
+		diff := diffSystemAllocsForNode(job, "node1", eligible, tainted, required, live, terminal)
+		require.Empty(t, diff.place)
+		require.Equal(t, 1, len(diff.update))
+		require.Empty(t, diff.stop)
+		require.Empty(t, diff.migrate)
+		require.Empty(t, diff.lost)
+		require.Empty(t, diff.ignore)
+	})
+}
+
 func TestDiffSystemAllocsForNode(t *testing.T) {
 	job := mock.Job()
 	required := materializeTaskGroups(job)

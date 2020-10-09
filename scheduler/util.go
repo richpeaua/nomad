@@ -39,6 +39,14 @@ type diffResult struct {
 	place, update, migrate, stop, ignore, lost []allocTuple
 }
 
+// todo remove
+func (d *diffResult) String() string {
+	return fmt.Sprintf(
+		"diff[place: %v, update: %v, migrate: %v, stop: %v, ignore: %v, lost: %v]",
+		d.place, d.update, d.migrate, d.stop, d.ignore, d.lost,
+	)
+}
+
 func (d *diffResult) GoString() string {
 	return fmt.Sprintf("allocs: (place %d) (update %d) (migrate %d) (stop %d) (ignore %d) (lost %d)",
 		len(d.place), len(d.update), len(d.migrate), len(d.stop), len(d.ignore), len(d.lost))
@@ -60,21 +68,19 @@ func (d *diffResult) Append(other *diffResult) {
 // need to be migrated (node is draining), the allocs that need to be evicted
 // (no longer required), those that should be ignored and those that are lost
 // that need to be replaced (running on a lost node).
-//
-// job is the job whose allocs is going to be diff-ed.
-// taintedNodes is an index of the nodes which are either down or in drain mode
-// by name.
-// required is a set of allocations that must exist.
-// allocs is a list of non terminal allocations.
-// terminalAllocs is an index of the latest terminal allocations by name.
-func diffSystemAllocsForNode(job *structs.Job, nodeID string,
-	eligibleNodes, taintedNodes map[string]*structs.Node,
-	required map[string]*structs.TaskGroup, allocs []*structs.Allocation,
-	terminalAllocs map[string]*structs.Allocation) *diffResult {
-	result := &diffResult{}
+func diffSystemAllocsForNode(
+	job *structs.Job, // job whose allocs are going to be diff-ed
+	nodeID string,
+	eligibleNodes map[string]*structs.Node,
+	taintedNodes map[string]*structs.Node, // nodes which are down or in drain (by node name)
+	required map[string]*structs.TaskGroup, // set of allocations that must exist
+	allocs []*structs.Allocation, // non-terminal allocations that exist
+	terminalAllocs map[string]*structs.Allocation, // latest terminal allocations (by name)
+) *diffResult {
+	result := new(diffResult)
 
 	// Scan the existing updates
-	existing := make(map[string]struct{})
+	existing := make(map[string]struct{}) // set of alloc names
 	for _, exist := range allocs {
 		// Index the existing node
 		name := exist.Name
@@ -102,6 +108,17 @@ func diffSystemAllocsForNode(job *structs.Job, nodeID string,
 			})
 			continue
 		}
+
+		// If we are a sysbatch job and terminal, ignore (or stop?) the alloc
+		if job.Type == structs.JobTypeSysBatch && exist.TerminalStatus() {
+			result.ignore = append(result.ignore, allocTuple{
+				Name:      name,
+				TaskGroup: tg,
+				Alloc:     exist,
+			})
+			continue
+		}
+
 		// If we are on a tainted node, we must migrate if we are a service or
 		// if the batch allocation did not finish
 		if node, ok := taintedNodes[exist.NodeID]; ok {
@@ -154,6 +171,33 @@ func diffSystemAllocsForNode(job *structs.Job, nodeID string,
 
 	// Scan the required groups
 	for name, tg := range required {
+
+		// todo bug: job updates are ignored
+		// Check for a terminal sysbatch allocation, which should be not placed
+		// again.
+		if job.Type == structs.JobTypeSysBatch {
+			if alloc, ok := terminalAllocs[name]; ok {
+				// the alloc is terminal, but now the job has been updated
+				if job.JobModifyIndex != alloc.Job.JobModifyIndex {
+					replaceable := alloc.Copy() // we do not have the original
+					replaceable.NodeID = nodeID
+					result.update = append(result.update, allocTuple{
+						Name:      name,
+						TaskGroup: tg,
+						Alloc:     replaceable,
+					})
+				} else {
+					// alloc is terminal and job unchanged, leave it alone
+					result.ignore = append(result.ignore, allocTuple{
+						Name:      name,
+						TaskGroup: tg,
+						Alloc:     alloc,
+					})
+				}
+				continue
+			}
+		}
+
 		// Check for an existing allocation
 		_, ok := existing[name]
 
@@ -191,15 +235,13 @@ func diffSystemAllocsForNode(job *structs.Job, nodeID string,
 
 // diffSystemAllocs is like diffSystemAllocsForNode however, the allocations in the
 // diffResult contain the specific nodeID they should be allocated on.
-//
-// job is the job whose allocs is going to be diff-ed.
-// nodes is a list of nodes in ready state.
-// taintedNodes is an index of the nodes which are either down or in drain mode
-// by name.
-// allocs is a list of non terminal allocations.
-// terminalAllocs is an index of the latest terminal allocations by name.
-func diffSystemAllocs(job *structs.Job, nodes []*structs.Node, taintedNodes map[string]*structs.Node,
-	allocs []*structs.Allocation, terminalAllocs map[string]*structs.Allocation) *diffResult {
+func diffSystemAllocs(
+	job *structs.Job, // jobs whose allocations are going to be diff-ed
+	nodes []*structs.Node, // list of nodes in the ready state
+	taintedNodes map[string]*structs.Node, // nodes which are down or drain mode (by name)
+	allocs []*structs.Allocation, // non-terminal allocations
+	terminalAllocs map[string]*structs.Allocation, // latest terminal allocations (by name)
+) *diffResult {
 
 	// Build a mapping of nodes to all their allocs.
 	nodeAllocs := make(map[string][]*structs.Allocation, len(allocs))
@@ -219,7 +261,7 @@ func diffSystemAllocs(job *structs.Job, nodes []*structs.Node, taintedNodes map[
 	// Create the required task groups.
 	required := materializeTaskGroups(job)
 
-	result := &diffResult{}
+	result := new(diffResult)
 	for nodeID, allocs := range nodeAllocs {
 		diff := diffSystemAllocsForNode(job, nodeID, eligibleNodes, taintedNodes, required, allocs, terminalAllocs)
 		result.Append(diff)

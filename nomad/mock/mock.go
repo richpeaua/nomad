@@ -172,6 +172,46 @@ func HCL() string {
 `
 }
 
+func SystemBatchJob() *structs.Job {
+	job := &structs.Job{
+		Region:      "global",
+		ID:          fmt.Sprintf("mock-sysbatch-%s", uuid.Short()),
+		Name:        "my-sysbatch",
+		Namespace:   structs.DefaultNamespace,
+		Type:        structs.JobTypeSysBatch,
+		Priority:    10,
+		Datacenters: []string{"dc1"},
+		Constraints: []*structs.Constraint{
+			{
+				LTarget: "${attr.kernel.name}",
+				RTarget: "linux",
+				Operand: "=",
+			},
+		},
+		TaskGroups: []*structs.TaskGroup{{
+			Count: 1,
+			Name:  "pings",
+			Tasks: []*structs.Task{{
+				Name:   "ping-example",
+				Driver: "exec",
+				Config: map[string]interface{}{
+					"command": "/usr/bin/ping",
+					"args":    []string{"-c", "5", "example.com"},
+				},
+				LogConfig: structs.DefaultLogConfig(),
+			}},
+		}},
+
+		Status:         structs.JobStatusPending,
+		Version:        0,
+		CreateIndex:    42,
+		ModifyIndex:    99,
+		JobModifyIndex: 99,
+	}
+	job.Canonicalize()
+	return job
+}
+
 func Job() *structs.Job {
 	job := &structs.Job{
 		Region:      "global",
