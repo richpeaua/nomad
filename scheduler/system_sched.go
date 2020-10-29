@@ -76,14 +76,8 @@ func (s *SystemScheduler) Process(eval *structs.Evaluation) error {
 	s.logger = s.logger.With("eval_id", eval.ID, "job_id", eval.JobID, "namespace", eval.Namespace)
 
 	// Verify the evaluation trigger reason is understood
-	switch eval.TriggeredBy {
-	case structs.EvalTriggerJobRegister, structs.EvalTriggerNodeUpdate, structs.EvalTriggerFailedFollowUp,
-		structs.EvalTriggerJobDeregister, structs.EvalTriggerRollingUpdate, structs.EvalTriggerPreemption,
-		structs.EvalTriggerDeploymentWatcher, structs.EvalTriggerNodeDrain, structs.EvalTriggerAllocStop,
-		structs.EvalTriggerQueuedAllocs, structs.EvalTriggerScaling:
-	default:
-		desc := fmt.Sprintf("scheduler cannot handle '%s' evaluation reason",
-			eval.TriggeredBy)
+	if !s.canHandle(eval.TriggeredBy) {
+		desc := fmt.Sprintf("scheduler cannot handle '%s' evaluation reason", eval.TriggeredBy)
 		return setStatus(s.logger, s.planner, s.eval, s.nextEval, nil, s.failedTGAllocs, structs.EvalStatusFailed, desc,
 			s.queuedAllocs, "")
 	}
@@ -442,4 +436,28 @@ func (s *SystemScheduler) addBlocked(node *structs.Node) error {
 	blocked.NodeID = node.ID
 
 	return s.planner.CreateEval(blocked)
+}
+
+func (s *SystemScheduler) canHandle(trigger string) bool {
+	switch trigger {
+	case structs.EvalTriggerJobRegister:
+	case structs.EvalTriggerNodeUpdate:
+	case structs.EvalTriggerFailedFollowUp:
+	case structs.EvalTriggerJobDeregister:
+	case structs.EvalTriggerRollingUpdate:
+	case structs.EvalTriggerPreemption:
+	case structs.EvalTriggerDeploymentWatcher:
+	case structs.EvalTriggerNodeDrain:
+	case structs.EvalTriggerAllocStop:
+	case structs.EvalTriggerQueuedAllocs:
+	case structs.EvalTriggerScaling:
+	default:
+		switch s.sysbatch {
+		case true:
+			return trigger == structs.EvalTriggerPeriodicJob
+		case false:
+			return false
+		}
+	}
+	return true
 }
