@@ -1231,6 +1231,10 @@ func BatchAlloc() *structs.Allocation {
 	return alloc
 }
 
+func SysBatchAlloc() *structs.Allocation {
+	// todo YOU ARE HERE
+}
+
 func SystemAlloc() *structs.Allocation {
 	alloc := &structs.Allocation{
 		ID:        uuid.Generate(),

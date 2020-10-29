@@ -41,29 +41,21 @@ func TestSystemSched_JobRegister(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
-	// Ensure the plan doesn't have annotations.
-	if plan.Annotations != nil {
-		t.Fatalf("expected no annotations")
-	}
+	// Ensure the plan does not have annotations
+	require.Nil(t, plan.Annotations, "expected no annotations")
 
 	// Ensure the plan allocated
 	var planned []*structs.Allocation
 	for _, allocList := range plan.NodeAllocation {
 		planned = append(planned, allocList...)
 	}
-	if len(planned) != 10 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, planned, 10)
 
 	// Lookup the allocations by JobID
 	ws := memdb.NewWatchSet()
@@ -71,20 +63,16 @@ func TestSystemSched_JobRegister(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure all allocations placed
-	if len(out) != 10 {
-		t.Fatalf("bad: %#v", out)
-	}
+	require.Len(t, out, 10)
 
 	// Check the available nodes
-	if count, ok := out[0].Metrics.NodesAvailable["dc1"]; !ok || count != 10 {
-		t.Fatalf("bad: %#v", out[0].Metrics)
-	}
+	count, ok := out[0].Metrics.NodesAvailable["dc1"]
+	require.True(t, ok)
+	require.Equal(t, 10, count, "bad metrics %#v:", out[0].Metrics)
 
 	// Ensure no allocations are queued
 	queued := h.Evals[0].QueuedAllocations["web"]
-	if queued != 0 {
-		t.Fatalf("expected queued allocations: %v, actual: %v", 0, queued)
-	}
+	require.Equal(t, 0, queued, "unexpected queued allocations")
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -455,9 +443,7 @@ func TestSystemSched_JobRegister_AddNode(t *testing.T) {
 	}
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan had no node updates
@@ -465,19 +451,14 @@ func TestSystemSched_JobRegister_AddNode(t *testing.T) {
 	for _, updateList := range plan.NodeUpdate {
 		update = append(update, updateList...)
 	}
-	if len(update) != 0 {
-		t.Log(len(update))
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Empty(t, update)
 
 	// Ensure the plan allocated on the new node
 	var planned []*structs.Allocation
 	for _, allocList := range plan.NodeAllocation {
 		planned = append(planned, allocList...)
 	}
-	if len(planned) != 1 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, planned, 1)
 
 	// Ensure it allocated on the right node
 	if _, ok := plan.NodeAllocation[node.ID]; !ok {
