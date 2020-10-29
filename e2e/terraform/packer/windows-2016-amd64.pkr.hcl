@@ -1,7 +1,7 @@
 locals { timestamp = regex_replace(timestamp(), "[- TZ:]", "") }
 
 source "amazon-ebs" "latest_windows_2016" {
-  ami_name       = "nomad-e2e-windows-2016-amd64-${local.timestamp}"
+  ami_name       = "test-nomad-e2e-windows-2016-amd64-${local.timestamp}"
   communicator   = "winrm"
   instance_type  = "t2.medium"
   region         = "us-east-1"
@@ -36,7 +36,6 @@ build {
       "windows-2016-amd64/disable-windows-updates.ps1",
       "windows-2016-amd64/fix-tls.ps1",
       "windows-2016-amd64/install-nuget.ps1",
-      "windows-2016-amd64/install-tools.ps1",
       "windows-2016-amd64/install-docker.ps1",
       "windows-2016-amd64/setup-directories.ps1",
       "windows-2016-amd64/install-openssh.ps1",

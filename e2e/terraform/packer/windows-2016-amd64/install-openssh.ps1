@@ -20,32 +20,33 @@ Try {
 
     # TODO: check sha!
     Write-Output "Downloading OpenSSH from: $url"
-    Invoke-WebRequest -Uri $url -Outfile "OpenSSH-Win64.zip"
-    Expand-Archive ".\OpenSSH-Win64.zip" "C:\Program Files"
-    Rename-Item -Path "C:\Program Files\OpenSSH-Win64" -NewName "OpenSSH"
+    Invoke-WebRequest -Uri $url -Outfile "OpenSSH-Win64.zip" -ErrorAction Stop
+    Expand-Archive ".\OpenSSH-Win64.zip" "C:\Program Files" -ErrorAction Stop
+    Rename-Item -Path "C:\Program Files\OpenSSH-Win64" -NewName "OpenSSH" -ErrorAction Stop
 
     & "C:\Program Files\OpenSSH\install-sshd.ps1"
 
     # Start the service
     Start-Service sshd
-    Set-Service -Name sshd -StartupType 'Automatic'
+    Set-Service -Name sshd -StartupType 'Automatic' -ErrorAction Stop
 
     Start-Service ssh-agent
-    Set-Service -Name ssh-agent -StartupType 'Automatic'
+    Set-Service -Name ssh-agent -StartupType 'Automatic' -ErrorAction Stop
 
     # Enable host firewall rule if it doesn't exist
     New-NetFirewallRule -Name sshd -DisplayName 'OpenSSH Server (sshd)' `
-      -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22
+      -Enabled True -Direction Inbound -Protocol TCP -Action Allow -LocalPort 22 -ErrorAction Stop
 
     # Set powershell as the OpenSSH login shell
     New-ItemProperty -Path "HKLM:\SOFTWARE\OpenSSH" `
       -Name DefaultShell `
       -Value "C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe" `
-      -PropertyType String -Force
+      -PropertyType String -Force -ErrorAction Stop
 
 
 } Catch {
-    Write-Error "Failed to install OpenSSH."
+    Write-Output "Failed to install OpenSSH."
+    Write-Output $_
     $host.SetShouldExit(-1)
     throw
 }
