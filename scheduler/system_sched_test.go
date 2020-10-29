@@ -2196,3 +2196,16 @@ func TestSystemSched_Preemption(t *testing.T) {
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 
 }
+
+func TestSystemSched_canHandle(t *testing.T) {
+	s := SystemScheduler{sysbatch: false}
+	t.Run("system register", func(t *testing.T) {
+		require.True(t, s.canHandle(structs.EvalTriggerJobRegister))
+	})
+	t.Run("system scheduled", func(t *testing.T) {
+		require.False(t, s.canHandle(structs.EvalTriggerScheduled))
+	})
+	t.Run("system periodic", func(t *testing.T) {
+		require.False(t, s.canHandle(structs.EvalTriggerPeriodicJob))
+	})
+}
