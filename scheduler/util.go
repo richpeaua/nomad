@@ -39,14 +39,6 @@ type diffResult struct {
 	place, update, migrate, stop, ignore, lost []allocTuple
 }
 
-// todo remove
-func (d *diffResult) String() string {
-	return fmt.Sprintf(
-		"diff[place: %v, update: %v, migrate: %v, stop: %v, ignore: %v, lost: %v]",
-		d.place, d.update, d.migrate, d.stop, d.ignore, d.lost,
-	)
-}
-
 func (d *diffResult) GoString() string {
 	return fmt.Sprintf("allocs: (place %d) (update %d) (migrate %d) (stop %d) (ignore %d) (lost %d)",
 		len(d.place), len(d.update), len(d.migrate), len(d.stop), len(d.ignore), len(d.lost))
@@ -75,9 +67,15 @@ func diffSystemAllocsForNode(
 	taintedNodes map[string]*structs.Node, // nodes which are down or in drain (by node name)
 	required map[string]*structs.TaskGroup, // set of allocations that must exist
 	allocs []*structs.Allocation, // non-terminal allocations that exist
-	terminalAllocs map[string]*structs.Allocation, // latest terminal allocations (by name)
+	terminal structs.TerminalByNodeByName, // latest terminal allocations (by node, name)
 ) *diffResult {
 	result := new(diffResult)
+
+	fmt.Println("diffSystemAllocsForNode <enter> nodeID:", nodeID, "jobID:", job.ID)
+	//fmt.Println("   allocs:", len(allocs))
+	//for _, a := range allocs {
+	//	fmt.Println("      alloc:", a.Name, "status:", a.ClientStatus)
+	//}
 
 	// Scan the existing updates
 	existing := make(map[string]struct{}) // set of alloc names
@@ -157,6 +155,10 @@ func diffSystemAllocsForNode(
 				TaskGroup: tg,
 				Alloc:     exist,
 			})
+			fmt.Println("? update because job index",
+				"name:", exist.Name,
+				"node:", exist.NodeID,
+				"status:", exist.ClientStatus) // OH HELLO, IT IS DOUBLE UPDATE
 			continue
 		}
 
@@ -172,40 +174,39 @@ func diffSystemAllocsForNode(
 	// Scan the required groups
 	for name, tg := range required {
 
-		// todo bug: job updates are ignored
-		// Check for a terminal sysbatch allocation, which should be not placed
-		// again.
-		if job.Type == structs.JobTypeSysBatch {
-			if alloc, ok := terminalAllocs[name]; ok {
-				// the alloc is terminal, but now the job has been updated
-				if job.JobModifyIndex != alloc.Job.JobModifyIndex {
-					replaceable := alloc.Copy() // we do not have the original
-					replaceable.NodeID = nodeID
-					result.update = append(result.update, allocTuple{
-						Name:      name,
-						TaskGroup: tg,
-						Alloc:     replaceable,
-					})
-				} else {
-					// alloc is terminal and job unchanged, leave it alone
-					result.ignore = append(result.ignore, allocTuple{
-						Name:      name,
-						TaskGroup: tg,
-						Alloc:     alloc,
-					})
-				}
-				continue
-			}
-		}
-
 		// Check for an existing allocation
-		_, ok := existing[name]
+		if _, ok := existing[name]; !ok {
 
-		// Require a placement if no existing allocation. If there
-		// is an existing allocation, we would have checked for a potential
-		// update or ignore above. Ignore placements for tainted or
-		// ineligible nodes
-		if !ok {
+			// Check for a terminal sysbatch allocation, which should be not placed
+			// again unless the job has been updated.
+			if job.Type == structs.JobTypeSysBatch {
+				if alloc, termExists := terminal.Get(nodeID, name); termExists {
+					// the alloc is terminal, but now the job has been updated
+					if job.JobModifyIndex != alloc.Job.JobModifyIndex {
+						fmt.Println("! update because terminal nodeID:", nodeID, "name:", name)
+						result.update = append(result.update, allocTuple{
+							Name:      name,
+							TaskGroup: tg,
+							Alloc:     alloc,
+						})
+						fmt.Println(" ---> update is now size:", len(result.update))
+					} else {
+						// alloc is terminal and job unchanged, leave it alone
+						result.ignore = append(result.ignore, allocTuple{
+							Name:      name,
+							TaskGroup: tg,
+							Alloc:     alloc,
+						})
+					}
+					continue
+				}
+			}
+
+			// Require a placement if no existing allocation. If there
+			// is an existing allocation, we would have checked for a potential
+			// update or ignore above. Ignore placements for tainted or
+			// ineligible nodes
+
 			// Tainted and ineligible nodes for a non existing alloc
 			// should be filtered out and not count towards ignore or place
 			if _, tainted := taintedNodes[nodeID]; tainted {
@@ -215,10 +216,11 @@ func diffSystemAllocsForNode(
 				continue
 			}
 
+			termOnNode, _ := terminal.Get(nodeID, name)
 			allocTuple := allocTuple{
 				Name:      name,
 				TaskGroup: tg,
-				Alloc:     terminalAllocs[name],
+				Alloc:     termOnNode,
 			}
 
 			// If the new allocation isn't annotated with a previous allocation
@@ -240,7 +242,7 @@ func diffSystemAllocs(
 	nodes []*structs.Node, // list of nodes in the ready state
 	taintedNodes map[string]*structs.Node, // nodes which are down or drain mode (by name)
 	allocs []*structs.Allocation, // non-terminal allocations
-	terminalAllocs map[string]*structs.Allocation, // latest terminal allocations (by name)
+	terminal structs.TerminalByNodeByName, // latest terminal allocations (by name)
 ) *diffResult {
 
 	// Build a mapping of nodes to all their allocs.
@@ -263,7 +265,7 @@ func diffSystemAllocs(
 
 	result := new(diffResult)
 	for nodeID, allocs := range nodeAllocs {
-		diff := diffSystemAllocsForNode(job, nodeID, eligibleNodes, taintedNodes, required, allocs, terminalAllocs)
+		diff := diffSystemAllocsForNode(job, nodeID, eligibleNodes, taintedNodes, required, allocs, terminal)
 		result.Append(diff)
 	}
 
@@ -795,6 +797,7 @@ func evictAndPlace(ctx Context, diff *diffResult, allocs []allocTuple, desc stri
 		a := allocs[i]
 		ctx.Plan().AppendStoppedAlloc(a.Alloc, desc, "", "")
 		diff.place = append(diff.place, a)
+		fmt.Println("evict node:", a.Alloc.NodeID, "alloc:", a.Name, "status:", a.Alloc.ClientStatus, "idx:", a.Alloc.Job.JobModifyIndex)
 	}
 	if n <= *limit {
 		*limit -= n

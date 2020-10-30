@@ -49,12 +49,14 @@ func TestDiffSystemAllocsForNode_Sysbatch_terminal(t *testing.T) {
 	tainted := map[string]*structs.Node(nil)
 
 	t.Run("current job", func(t *testing.T) {
-		terminal := map[string]*structs.Allocation{
-			"my-sysbatch.pings[0]": &structs.Allocation{
-				ID:     uuid.Generate(),
-				NodeID: "node1",
-				Name:   "my-sysbatch.pings[0]",
-				Job:    job,
+		terminal := structs.TerminalByNodeByName{
+			"node1": map[string]*structs.Allocation{
+				"my-sysbatch.pings[0]": &structs.Allocation{
+					ID:     uuid.Generate(),
+					NodeID: "node1",
+					Name:   "my-sysbatch.pings[0]",
+					Job:    job,
+				},
 			},
 		}
 
@@ -64,22 +66,24 @@ func TestDiffSystemAllocsForNode_Sysbatch_terminal(t *testing.T) {
 		require.Empty(t, diff.stop)
 		require.Empty(t, diff.migrate)
 		require.Empty(t, diff.lost)
-		require.True(t, len(diff.ignore) == 1 && diff.ignore[0].Alloc == terminal["my-sysbatch.pings[0]"])
+		require.True(t, len(diff.ignore) == 1 && diff.ignore[0].Alloc == terminal["node1"]["my-sysbatch.pings[0]"])
 	})
 
 	t.Run("outdated job", func(t *testing.T) {
 		previousJob := job.Copy()
 		previousJob.JobModifyIndex -= 1
-		terminal := map[string]*structs.Allocation{
-			"my-sysbatch.pings[0]": &structs.Allocation{
-				ID:     uuid.Generate(),
-				NodeID: "node1",
-				Name:   "my-sysbatch.pings[0]",
-				Job:    previousJob,
+		terminal := structs.TerminalByNodeByName{
+			"node1": map[string]*structs.Allocation{
+				"my-sysbatch.pings[0]": &structs.Allocation{
+					ID:     uuid.Generate(),
+					NodeID: "node1",
+					Name:   "my-sysbatch.pings[0]",
+					Job:    job,
+				},
 			},
 		}
 
-		expAlloc := terminal["my-sysbatch.pings[0]"]
+		expAlloc := terminal["node1"]["my-sysbatch.pings[0]"]
 		expAlloc.NodeID = "node1"
 
 		diff := diffSystemAllocsForNode(job, "node1", eligible, tainted, required, live, terminal)
@@ -185,7 +189,30 @@ func TestDiffSystemAllocsForNode(t *testing.T) {
 		},
 	}
 
-	diff := diffSystemAllocsForNode(job, "zip", eligible, tainted, required, allocs, terminalAllocs)
+	terminal := structs.TerminalByNodeByName{
+		"zip": map[string]*structs.Allocation{
+			"my-job.web[4]": {
+				ID:     uuid.Generate(),
+				NodeID: "zip",
+				Name:   "my-job.web[4]",
+				Job:    job,
+			},
+			"my-job.web[5]": {
+				ID:     uuid.Generate(),
+				NodeID: "zip",
+				Name:   "my-job.web[5]",
+				Job:    job,
+			},
+			"my-job.web[6]": {
+				ID:     uuid.Generate(),
+				NodeID: "zip",
+				Name:   "my-job.web[6]",
+				Job:    job,
+			},
+		},
+	}
+
+	diff := diffSystemAllocsForNode(job, "zip", eligible, tainted, required, allocs, terminal)
 	place := diff.place
 	update := diff.update
 	migrate := diff.migrate
@@ -264,9 +291,9 @@ func TestDiffSystemAllocsForNode_ExistingAllocIneligibleNode(t *testing.T) {
 	}
 
 	// No terminal allocs
-	terminalAllocs := map[string]*structs.Allocation{}
+	terminal := make(structs.TerminalByNodeByName)
 
-	diff := diffSystemAllocsForNode(job, eligibleNode.ID, eligible, tainted, required, allocs, terminalAllocs)
+	diff := diffSystemAllocsForNode(job, eligibleNode.ID, eligible, tainted, required, allocs, terminal)
 	place := diff.place
 	update := diff.update
 	migrate := diff.migrate
@@ -341,17 +368,19 @@ func TestDiffSystemAllocs(t *testing.T) {
 		},
 	}
 
-	// Have three terminal allocs
-	terminalAllocs := map[string]*structs.Allocation{
-		"my-job.web[0]": {
-			ID:     uuid.Generate(),
-			NodeID: "pipe",
-			Name:   "my-job.web[0]",
-			Job:    job,
+	// Have three (?) terminal allocs
+	terminal := structs.TerminalByNodeByName{
+		"pipe": map[string]*structs.Allocation{
+			"my-job.web[0]": {
+				ID:     uuid.Generate(),
+				NodeID: "pipe",
+				Name:   "my-job.web[0]",
+				Job:    job,
+			},
 		},
 	}
 
-	diff := diffSystemAllocs(job, nodes, tainted, allocs, terminalAllocs)
+	diff := diffSystemAllocs(job, nodes, tainted, allocs, terminal)
 	place := diff.place
 	update := diff.update
 	migrate := diff.migrate
@@ -378,12 +407,14 @@ func TestDiffSystemAllocs(t *testing.T) {
 	require.Equal(t, 2, len(place))
 
 	// Ensure that the allocations which are replacements of terminal allocs are
-	// annotated
-	for _, alloc := range terminalAllocs {
-		for _, allocTuple := range diff.place {
-			if alloc.NodeID == allocTuple.Alloc.NodeID {
-				require.True(t, reflect.DeepEqual(alloc, allocTuple.Alloc),
-					"expected: %#v, actual: %#v", alloc, allocTuple.Alloc)
+	// annotated.
+	for _, m := range terminal {
+		for _, alloc := range m {
+			for _, tuple := range diff.place {
+				if alloc.NodeID == tuple.Alloc.NodeID {
+					require.True(t, reflect.DeepEqual(alloc, tuple.Alloc),
+						"expected: %#v, actual: %#v", alloc, tuple.Alloc)
+				}
 			}
 		}
 	}

@@ -71,9 +71,16 @@ func RemoveAllocs(alloc []*Allocation, remove []*Allocation) []*Allocation {
 
 // FilterTerminalAllocs filters out all allocations in a terminal state and
 // returns the latest terminal allocations
+//
+// Deprecated: use scheduler.SplitTerminalAllocs
 func FilterTerminalAllocs(allocs []*Allocation) ([]*Allocation, map[string]*Allocation) {
 	terminalAllocsByName := make(map[string]*Allocation)
 	n := len(allocs)
+	fmt.Println("Filter before")
+	for _, alloc := range allocs {
+		fmt.Println("  -> node:", alloc.NodeID, "alloc:", alloc.Name, "term:", alloc.TerminalStatus())
+	}
+
 	for i := 0; i < n; i++ {
 		if allocs[i].TerminalStatus() {
 
@@ -91,7 +98,78 @@ func FilterTerminalAllocs(allocs []*Allocation) ([]*Allocation, map[string]*Allo
 			n--
 		}
 	}
+
+	fmt.Println("Filter result")
+	for _, alloc := range allocs[:n] {
+		fmt.Println("  -> node:", alloc.NodeID, "alloc:", alloc.Name, "term:", alloc.TerminalStatus())
+	}
+
 	return allocs[:n], terminalAllocsByName
+}
+
+// SplitTerminalAllocs splits allocs into non-terminal and terminal allocs, with
+// the terminal allocs indexed by node->alloc.name.
+func SplitTerminalAllocs(allocs []*Allocation) ([]*Allocation, TerminalByNodeByName) {
+	var alive []*Allocation
+	var terminal = make(TerminalByNodeByName)
+
+	for _, alloc := range allocs {
+		if alloc.TerminalStatus() {
+			terminal.Set(alloc)
+		} else {
+			alive = append(alive, alloc)
+		}
+	}
+
+	return alive, terminal
+}
+
+// TerminalByNodeByName is a map of NodeID->Allocation.Name->Allocation used by
+// the sysbatch scheduler for locating the most up-to-date terminal allocations.
+type TerminalByNodeByName map[string]map[string]*Allocation
+
+func (a TerminalByNodeByName) Set(allocation *Allocation) {
+	node := allocation.NodeID
+	name := allocation.Name
+
+	if _, exists := a[node]; !exists {
+		a[node] = make(map[string]*Allocation)
+	}
+
+	if previous, exists := a[node][name]; !exists {
+		a[node][name] = allocation
+	} else {
+		// keep the newest version of the terminal alloc for the coordinate
+		if previous.CreateIndex < allocation.CreateIndex {
+			a[node][name] = allocation
+		}
+	}
+}
+
+func (a TerminalByNodeByName) Get(nodeID, name string) (*Allocation, bool) {
+	if _, exists := a[nodeID]; !exists {
+		return nil, false
+	}
+
+	if _, exists := a[nodeID][name]; !exists {
+		return nil, false
+	}
+
+	return a[nodeID][name], true
+}
+
+// Any returns any matching allocation matching name if exists. Used by the
+// system scheduler to substitute a missing allocation that will be updated
+// later.
+func (a TerminalByNodeByName) Any(name string) *Allocation {
+	for _, names := range a {
+		for aName := range names {
+			if name == aName {
+				return names[name]
+			}
+		}
+	}
+	return nil
 }
 
 // AllocsFit checks if a given set of allocations will fit on a node.

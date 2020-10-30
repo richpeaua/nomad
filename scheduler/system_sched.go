@@ -215,10 +215,14 @@ func (s *SystemScheduler) computeJobAllocs() error {
 	updateNonTerminalAllocsToLost(s.plan, tainted, allocs)
 
 	// Filter out the allocations in a terminal state
-	allocs, terminalAllocs := structs.FilterTerminalAllocs(allocs)
+	//allocs, terminalAllocs := structs.FilterTerminalAllocs(allocs)
+	//fmt.Println("SH allocs:", len(allocs), "terminal:", terminalAllocs)
+
+	// Split out terminal allocations
+	live, term := structs.SplitTerminalAllocs(allocs)
 
 	// Diff the required and existing allocations
-	diff := diffSystemAllocs(s.job, s.nodes, tainted, allocs, terminalAllocs)
+	diff := diffSystemAllocs(s.job, s.nodes, tainted, live, term)
 	s.logger.Debug("reconciled current state with desired state",
 		"place", len(diff.place), "update", len(diff.update),
 		"migrate", len(diff.migrate), "stop", len(diff.stop),

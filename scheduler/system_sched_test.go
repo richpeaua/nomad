@@ -571,14 +571,10 @@ func TestSystemSched_JobModify(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan evicted all allocs
@@ -586,18 +582,14 @@ func TestSystemSched_JobModify(t *testing.T) {
 	for _, updateList := range plan.NodeUpdate {
 		update = append(update, updateList...)
 	}
-	if len(update) != len(allocs) {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Equal(t, len(allocs), len(update))
 
 	// Ensure the plan allocated
 	var planned []*structs.Allocation
 	for _, allocList := range plan.NodeAllocation {
 		planned = append(planned, allocList...)
 	}
-	if len(planned) != 10 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, planned, 10)
 
 	// Lookup the allocations by JobID
 	ws := memdb.NewWatchSet()
@@ -606,9 +598,7 @@ func TestSystemSched_JobModify(t *testing.T) {
 
 	// Ensure all allocations placed
 	out, _ = structs.FilterTerminalAllocs(out)
-	if len(out) != 10 {
-		t.Fatalf("bad: %#v", out)
-	}
+	require.Len(t, out, 10)
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -1293,7 +1283,7 @@ func TestSystemSched_Queued_With_Constraints(t *testing.T) {
 
 // This test ensures that the scheduler correctly ignores ineligible
 // nodes when scheduling due to a new node being added. The job has two
-// task groups contrained to a particular node class. The desired behavior
+// task groups constrained to a particular node class. The desired behavior
 // should be that the TaskGroup constrained to the newly added node class is
 // added and that the TaskGroup constrained to the ineligible node is ignored.
 func TestSystemSched_JobConstraint_AddNode(t *testing.T) {

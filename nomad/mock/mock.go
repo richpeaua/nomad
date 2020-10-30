@@ -190,7 +190,7 @@ func SystemBatchJob() *structs.Job {
 		},
 		TaskGroups: []*structs.TaskGroup{{
 			Count: 1,
-			Name:  "pings",
+			Name:  "pinger",
 			Tasks: []*structs.Task{{
 				Name:   "ping-example",
 				Driver: "exec",
@@ -1232,7 +1232,31 @@ func BatchAlloc() *structs.Allocation {
 }
 
 func SysBatchAlloc() *structs.Allocation {
-	// todo YOU ARE HERE
+	job := SystemBatchJob()
+	return &structs.Allocation{
+		ID:        uuid.Generate(),
+		EvalID:    uuid.Generate(),
+		NodeID:    "12345678-abcd-efab-cdef-123456789abc",
+		Namespace: structs.DefaultNamespace,
+		TaskGroup: "pinger",
+		AllocatedResources: &structs.AllocatedResources{
+			Tasks: map[string]*structs.AllocatedTaskResources{
+				"ping-example": {
+					Cpu:    structs.AllocatedCpuResources{CpuShares: 500},
+					Memory: structs.AllocatedMemoryResources{MemoryMB: 256},
+					Networks: []*structs.NetworkResource{{
+						Device: "eth0",
+						IP:     "192.168.0.100",
+					}},
+				},
+			},
+			Shared: structs.AllocatedSharedResources{DiskMB: 150},
+		},
+		Job:           job,
+		JobID:         job.ID,
+		DesiredStatus: structs.AllocDesiredStatusRun,
+		ClientStatus:  structs.AllocClientStatusPending,
+	}
 }
 
 func SystemAlloc() *structs.Allocation {
