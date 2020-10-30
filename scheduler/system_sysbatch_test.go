@@ -165,7 +165,7 @@ func TestSysBatch_JobRegister_AddNode_Dead(t *testing.T) {
 
 	// Generate a dead sysbatch job with complete allocations
 	job := mock.SystemBatchJob()
-	job.Status = structs.JobStatusDead
+	job.Status = structs.JobStatusDead // job is dead but not stopped
 	require.NoError(t, h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job))
 
 	var allocs []*structs.Allocation
@@ -199,17 +199,36 @@ func TestSysBatch_JobRegister_AddNode_Dead(t *testing.T) {
 	err := h.Process(NewSysBatchScheduler, eval)
 	require.NoError(t, err)
 
-	// Ensure no plan (nothing to do)
-	require.Len(t, h.Plans, 0)
+	// Ensure a single plan
+	require.Len(t, h.Plans, 1)
+	plan := h.Plans[0]
+
+	// Ensure the plan has no node update
+	var update []*structs.Allocation
+	for _, updateList := range plan.NodeUpdate {
+		update = append(update, updateList...)
+	}
+	require.Len(t, update, 0)
+
+	// Ensure the plan allocates on the new node
+	var planned []*structs.Allocation
+	for _, allocList := range plan.NodeAllocation {
+		planned = append(planned, allocList...)
+	}
+	require.Len(t, planned, 1)
+
+	// Ensure it allocated on the right node
+	_, ok := plan.NodeAllocation[node.ID]
+	require.True(t, ok, "allocated on wrong node: %#v", plan)
 
 	// Lookup the allocations by JobID
 	ws := memdb.NewWatchSet()
 	out, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
 	require.NoError(t, err)
 
-	// Ensure no non-terminal allocations
-	out, _ = structs.FilterTerminalAllocs(out)
-	require.Empty(t, out)
+	// Ensure 1 non-terminal allocation
+	live, _ := structs.FilterTerminalAllocs(out)
+	require.Len(t, live, 1)
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
