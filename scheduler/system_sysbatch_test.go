@@ -93,7 +93,7 @@ func TestSysBatch_JobRegister_AddNode_Running(t *testing.T) {
 		alloc.Job = job
 		alloc.JobID = job.ID
 		alloc.NodeID = node.ID
-		alloc.Name = "my-sysbatch.pings[0]"
+		alloc.Name = "my-sysbatch.pinger[0]"
 		alloc.ClientStatus = structs.AllocClientStatusRunning
 		allocs = append(allocs, alloc)
 	}
@@ -174,7 +174,7 @@ func TestSysBatch_JobRegister_AddNode_Dead(t *testing.T) {
 		alloc.Job = job
 		alloc.JobID = job.ID
 		alloc.NodeID = node.ID
-		alloc.Name = "my-sysbatch.pings[0]"
+		alloc.Name = "my-sysbatch.pinger[0]"
 		alloc.ClientStatus = structs.AllocClientStatusComplete
 		allocs = append(allocs, alloc)
 	}

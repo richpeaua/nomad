@@ -71,7 +71,7 @@ func diffSystemAllocsForNode(
 ) *diffResult {
 	result := new(diffResult)
 
-	fmt.Println("diffSystemAllocsForNode <enter> nodeID:", nodeID, "jobID:", job.ID)
+	// fmt.Println("diffSystemAllocsForNode <enter> nodeID:", nodeID, "jobID:", job.ID)
 	//fmt.Println("   allocs:", len(allocs))
 	//for _, a := range allocs {
 	//	fmt.Println("      alloc:", a.Name, "status:", a.ClientStatus)
@@ -797,7 +797,7 @@ func evictAndPlace(ctx Context, diff *diffResult, allocs []allocTuple, desc stri
 		a := allocs[i]
 		ctx.Plan().AppendStoppedAlloc(a.Alloc, desc, "", "")
 		diff.place = append(diff.place, a)
-		fmt.Println("evict node:", a.Alloc.NodeID, "alloc:", a.Name, "status:", a.Alloc.ClientStatus, "idx:", a.Alloc.Job.JobModifyIndex)
+		// fmt.Println("evict node:", a.Alloc.NodeID, "alloc:", a.Name, "status:", a.Alloc.ClientStatus, "idx:", a.Alloc.Job.JobModifyIndex)
 	}
 	if n <= *limit {
 		*limit -= n
