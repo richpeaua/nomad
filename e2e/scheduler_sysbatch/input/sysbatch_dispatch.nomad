@@ -9,7 +9,7 @@ job "sysbatchjob" {
   }
 
   parameterized {
-    payload = "forbidden"
+    payload       = "forbidden"
     meta_required = ["KEY"]
   }
 
