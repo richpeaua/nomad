@@ -14,10 +14,7 @@ func TestSysBatch_JobRegister(t *testing.T) {
 	h := NewHarness(t)
 
 	// Create some nodes
-	for i := 0; i < 10; i++ {
-		node := mock.Node()
-		require.NoError(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
-	}
+	_ = createNodes(t, h, 10)
 
 	// Create a job
 	job := mock.SystemBatchJob()
@@ -76,12 +73,7 @@ func TestSysBatch_JobRegister_AddNode_Running(t *testing.T) {
 	h := NewHarness(t)
 
 	// Create some nodes
-	var nodes []*structs.Node
-	for i := 0; i < 10; i++ {
-		node := mock.Node()
-		nodes = append(nodes, node)
-		require.NoError(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
-	}
+	nodes := createNodes(t, h, 10)
 
 	// Generate a fake sysbatch job with allocations
 	job := mock.SystemBatchJob()
@@ -156,12 +148,7 @@ func TestSysBatch_JobRegister_AddNode_Dead(t *testing.T) {
 	h := NewHarness(t)
 
 	// Create some nodes
-	var nodes []*structs.Node
-	for i := 0; i < 10; i++ {
-		node := mock.Node()
-		nodes = append(nodes, node)
-		require.NoError(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
-	}
+	nodes := createNodes(t, h, 10)
 
 	// Generate a dead sysbatch job with complete allocations
 	job := mock.SystemBatchJob()
@@ -237,12 +224,7 @@ func TestSysBatch_JobModify(t *testing.T) {
 	h := NewHarness(t)
 
 	// Create some nodes
-	nodes := make([]*structs.Node, 0, 10)
-	for i := 0; i < 10; i++ {
-		node := mock.Node()
-		nodes = append(nodes, node)
-		require.NoError(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
-	}
+	nodes := createNodes(t, h, 10)
 
 	// Generate a fake job with allocations
 	job := mock.SystemBatchJob()
@@ -326,7 +308,148 @@ func TestSysBatch_JobModify(t *testing.T) {
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
 
-func TestSysbatch_canHandle(t *testing.T) {
+func TestSysBatch_JobModify_InPlace(t *testing.T) {
+	h := NewHarness(t)
+
+	// Create some nodes
+	nodes := createNodes(t, h, 10)
+
+	job := mock.SystemBatchJob()
+	require.NoError(t, h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job))
+
+	var allocs []*structs.Allocation
+	for _, node := range nodes {
+		alloc := mock.SysBatchAlloc()
+		alloc.Job = job
+		alloc.JobID = job.ID
+		alloc.NodeID = node.ID
+		alloc.Name = "my-sysbatch.pinger[0]"
+		allocs = append(allocs, alloc)
+	}
+	require.NoError(t, h.State.UpsertAllocs(structs.MsgTypeTestSetup, h.NextIndex(), allocs))
+
+	// Update the job
+	job2 := mock.SystemBatchJob()
+	job2.ID = job.ID
+	require.NoError(t, h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job2))
+
+	// Create a mock evaluation to deal with update
+	eval := &structs.Evaluation{
+		Namespace:   structs.DefaultNamespace,
+		ID:          uuid.Generate(),
+		Priority:    50,
+		TriggeredBy: structs.EvalTriggerJobRegister,
+		JobID:       job.ID,
+		Status:      structs.EvalStatusPending,
+	}
+	require.NoError(t, h.State.UpsertEvals(structs.MsgTypeTestSetup, h.NextIndex(), []*structs.Evaluation{eval}))
+
+	// Process the evaluation
+	err := h.Process(NewSysBatchScheduler, eval)
+	require.NoError(t, err)
+
+	// Ensure a single plan
+	require.Len(t, h.Plans, 1)
+	plan := h.Plans[0]
+
+	// Ensure the plan did not evict any allocs
+	var update []*structs.Allocation
+	for _, updateList := range plan.NodeUpdate {
+		update = append(update, updateList...)
+	}
+	require.Empty(t, update)
+
+	// Ensure the plan updated the existing allocs
+	var planned []*structs.Allocation
+	for _, allocList := range plan.NodeAllocation {
+		planned = append(planned, allocList...)
+	}
+	require.Len(t, planned, 10)
+
+	for _, p := range planned {
+		require.Equal(t, job2, p.Job, "should update job")
+	}
+
+	// Lookup the allocations by JobID
+	ws := memdb.NewWatchSet()
+	out, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+	require.NoError(t, err)
+
+	// Ensure all allocations placed
+	require.Len(t, out, 10)
+	h.AssertEvalStatus(t, structs.EvalStatusComplete)
+}
+
+func TestSysBatch_JobDeregister_Purged(t *testing.T) {
+	h := NewHarness(t)
+
+	// Create some nodes
+	nodes := createNodes(t, h, 10)
+
+	// Create a sysbatch job
+	job := mock.SystemBatchJob()
+
+	var allocs []*structs.Allocation
+	for _, node := range nodes {
+		alloc := mock.SysBatchAlloc()
+		alloc.Job = job
+		alloc.JobID = job.ID
+		alloc.NodeID = node.ID
+		alloc.Name = "my-sysbatch.pinger[0]"
+		allocs = append(allocs, alloc)
+	}
+	for _, alloc := range allocs {
+		require.NoError(t, h.State.UpsertJobSummary(h.NextIndex(), mock.JobSummary(alloc.JobID)))
+	}
+	require.NoError(t, h.State.UpsertAllocs(structs.MsgTypeTestSetup, h.NextIndex(), allocs))
+
+	// Create a mock evaluation to deregister the job
+	eval := &structs.Evaluation{
+		Namespace:   structs.DefaultNamespace,
+		ID:          uuid.Generate(),
+		Priority:    50,
+		TriggeredBy: structs.EvalTriggerJobDeregister,
+		JobID:       job.ID,
+		Status:      structs.EvalStatusPending,
+	}
+	require.NoError(t, h.State.UpsertEvals(structs.MsgTypeTestSetup, h.NextIndex(), []*structs.Evaluation{eval}))
+
+	// Process the evaluation
+	err := h.Process(NewSysBatchScheduler, eval)
+	require.NoError(t, err)
+
+	// Ensure a single plan
+	require.Len(t, h.Plans, 1)
+	plan := h.Plans[0]
+
+	// Ensure the plan evicted the job from all nodes.
+	for _, node := range nodes {
+		require.Len(t, plan.NodeUpdate[node.ID], 1)
+	}
+
+	// Lookup the allocations by JobID
+	ws := memdb.NewWatchSet()
+	out, err := h.State.AllocsByJob(ws, job.Namespace, job.ID, false)
+	require.NoError(t, err)
+
+	// Ensure no remaining allocations
+	out, _ = structs.FilterTerminalAllocs(out)
+	require.Empty(t, out)
+
+	h.AssertEvalStatus(t, structs.EvalStatusComplete)
+}
+
+func createNodes(t *testing.T, h *Harness, n int) []*structs.Node {
+	nodes := make([]*structs.Node, n)
+	for i := 0; i < n; i++ {
+		node := mock.Node()
+		nodes[i] = node
+		require.NoError(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
+	}
+	return nodes
+}
+
+func TestSysBatch_canHandle(t *testing.T) {
 	s := SystemScheduler{sysbatch: true}
 	t.Run("sysbatch register", func(t *testing.T) {
 		require.True(t, s.canHandle(structs.EvalTriggerJobRegister))
