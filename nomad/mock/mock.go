@@ -935,7 +935,7 @@ func Eval() *structs.Evaluation {
 }
 
 func JobSummary(jobID string) *structs.JobSummary {
-	js := &structs.JobSummary{
+	return &structs.JobSummary{
 		JobID:     jobID,
 		Namespace: structs.DefaultNamespace,
 		Summary: map[string]structs.TaskGroupSummary{
@@ -945,7 +945,19 @@ func JobSummary(jobID string) *structs.JobSummary {
 			},
 		},
 	}
-	return js
+}
+
+func JobSysBatchSummary(jobID string) *structs.JobSummary {
+	return &structs.JobSummary{
+		JobID:     jobID,
+		Namespace: structs.DefaultNamespace,
+		Summary: map[string]structs.TaskGroupSummary{
+			"pinger": {
+				Queued:   0,
+				Starting: 0,
+			},
+		},
+	}
 }
 
 func Alloc() *structs.Allocation {

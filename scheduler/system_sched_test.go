@@ -863,21 +863,15 @@ func TestSystemSched_JobDeregister_Stopped(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan evicted the job from all nodes.
 	for _, node := range nodes {
-		if len(plan.NodeUpdate[node.ID]) != 1 {
-			t.Fatalf("bad: %#v", plan)
-		}
+		require.Len(t, plan.NodeUpdate[node.ID], 1)
 	}
 
 	// Lookup the allocations by JobID
@@ -887,9 +881,7 @@ func TestSystemSched_JobDeregister_Stopped(t *testing.T) {
 
 	// Ensure no remaining allocations
 	out, _ = structs.FilterTerminalAllocs(out)
-	if len(out) != 0 {
-		t.Fatalf("bad: %#v", out)
-	}
+	require.Empty(t, out)
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -928,35 +920,27 @@ func TestSystemSched_NodeDown(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan evicted all allocs
-	if len(plan.NodeUpdate[node.ID]) != 1 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, plan.NodeUpdate[node.ID], 1)
 
 	// Ensure the plan updated the allocation.
-	var planned []*structs.Allocation
+	planned := make([]*structs.Allocation, 0)
 	for _, allocList := range plan.NodeUpdate {
 		planned = append(planned, allocList...)
 	}
-	if len(planned) != 1 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, planned, 1)
 
 	// Ensure the allocations is stopped
-	if p := planned[0]; p.DesiredStatus != structs.AllocDesiredStatusStop &&
-		p.ClientStatus != structs.AllocClientStatusLost {
-		t.Fatalf("bad: %#v", planned[0])
-	}
+	p := planned[0]
+	require.Equal(t, structs.AllocDesiredStatusStop, p.DesiredStatus)
+	// removed badly designed assertion on client_status = lost
+	// the actual client_status is pending
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -994,32 +978,23 @@ func TestSystemSched_NodeDrain_Down(t *testing.T) {
 	require.NoError(t, h.State.UpsertEvals(structs.MsgTypeTestSetup, h.NextIndex(), []*structs.Evaluation{eval}))
 
 	// Process the evaluation
-	err := h.Process(NewServiceScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	err := h.Process(NewSystemScheduler, eval) // todo: yikes
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan evicted non terminal allocs
-	if len(plan.NodeUpdate[node.ID]) != 1 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, plan.NodeUpdate[node.ID], 1)
 
 	// Ensure that the allocation is marked as lost
-	var lostAllocs []string
+	var lost []string
 	for _, alloc := range plan.NodeUpdate[node.ID] {
-		lostAllocs = append(lostAllocs, alloc.ID)
+		lost = append(lost, alloc.ID)
 	}
-	expected := []string{alloc.ID}
+	require.Equal(t, []string{alloc.ID}, lost)
 
-	if !reflect.DeepEqual(lostAllocs, expected) {
-		t.Fatalf("expected: %v, actual: %v", expected, lostAllocs)
-	}
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
 
@@ -1057,35 +1032,24 @@ func TestSystemSched_NodeDrain(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure a single plan
-	if len(h.Plans) != 1 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.Len(t, h.Plans, 1)
 	plan := h.Plans[0]
 
 	// Ensure the plan evicted all allocs
-	if len(plan.NodeUpdate[node.ID]) != 1 {
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, plan.NodeUpdate[node.ID], 1)
 
 	// Ensure the plan updated the allocation.
-	var planned []*structs.Allocation
+	planned := make([]*structs.Allocation, 0)
 	for _, allocList := range plan.NodeUpdate {
 		planned = append(planned, allocList...)
 	}
-	if len(planned) != 1 {
-		t.Log(len(planned))
-		t.Fatalf("bad: %#v", plan)
-	}
+	require.Len(t, planned, 1)
 
 	// Ensure the allocations is stopped
-	if planned[0].DesiredStatus != structs.AllocDesiredStatusStop {
-		t.Fatalf("bad: %#v", planned[0])
-	}
+	require.Equal(t, structs.AllocDesiredStatusStop, planned[0].DesiredStatus)
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -1108,7 +1072,7 @@ func TestSystemSched_NodeUpdate(t *testing.T) {
 	alloc.Name = "my-job.web[0]"
 	require.NoError(t, h.State.UpsertAllocs(structs.MsgTypeTestSetup, h.NextIndex(), []*structs.Allocation{alloc}))
 
-	// Create a mock evaluation to deal
+	// Create a mock evaluation to deal with the node update
 	eval := &structs.Evaluation{
 		Namespace:   structs.DefaultNamespace,
 		ID:          uuid.Generate(),
@@ -1122,14 +1086,12 @@ func TestSystemSched_NodeUpdate(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure that queued allocations is zero
-	if val, ok := h.Evals[0].QueuedAllocations["web"]; !ok || val != 0 {
-		t.Fatalf("bad queued allocations: %#v", h.Evals[0].QueuedAllocations)
-	}
+	val, ok := h.Evals[0].QueuedAllocations["web"]
+	require.True(t, ok)
+	require.Zero(t, val)
 
 	h.AssertEvalStatus(t, structs.EvalStatusComplete)
 }
@@ -1145,7 +1107,7 @@ func TestSystemSched_RetryLimit(t *testing.T) {
 	job := mock.SystemJob()
 	require.NoError(t, h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job))
 
-	// Create a mock evaluation to deregister the job
+	// Create a mock evaluation to register the job
 	eval := &structs.Evaluation{
 		Namespace:   structs.DefaultNamespace,
 		ID:          uuid.Generate(),
@@ -1158,14 +1120,10 @@ func TestSystemSched_RetryLimit(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure multiple plans
-	if len(h.Plans) == 0 {
-		t.Fatalf("bad: %#v", h.Plans)
-	}
+	require.NotEmpty(t, h.Plans)
 
 	// Lookup the allocations by JobID
 	ws := memdb.NewWatchSet()
@@ -1173,9 +1131,7 @@ func TestSystemSched_RetryLimit(t *testing.T) {
 	require.NoError(t, err)
 
 	// Ensure no allocations placed
-	if len(out) != 0 {
-		t.Fatalf("bad: %#v", out)
-	}
+	require.Empty(t, out)
 
 	// Should hit the retry limit
 	h.AssertEvalStatus(t, structs.EvalStatusFailed)
@@ -1183,7 +1139,7 @@ func TestSystemSched_RetryLimit(t *testing.T) {
 
 // This test ensures that the scheduler doesn't increment the queued allocation
 // count for a task group when allocations can't be created on currently
-// available nodes because of constrain mismatches.
+// available nodes because of constraint mismatches.
 func TestSystemSched_Queued_With_Constraints(t *testing.T) {
 	h := NewHarness(t)
 
@@ -1196,7 +1152,7 @@ func TestSystemSched_Queued_With_Constraints(t *testing.T) {
 	job := mock.SystemJob()
 	require.NoError(t, h.State.UpsertJob(structs.MsgTypeTestSetup, h.NextIndex(), job))
 
-	// Create a mock evaluation to deal
+	// Create a mock evaluation to deal with the node update
 	eval := &structs.Evaluation{
 		Namespace:   structs.DefaultNamespace,
 		ID:          uuid.Generate(),
@@ -1210,15 +1166,12 @@ func TestSystemSched_Queued_With_Constraints(t *testing.T) {
 
 	// Process the evaluation
 	err := h.Process(NewSystemScheduler, eval)
-	if err != nil {
-		t.Fatalf("err: %v", err)
-	}
+	require.NoError(t, err)
 
 	// Ensure that queued allocations is zero
-	if val, ok := h.Evals[0].QueuedAllocations["web"]; !ok || val != 0 {
-		t.Fatalf("bad queued allocations: %#v", h.Evals[0].QueuedAllocations)
-	}
-
+	val, ok := h.Evals[0].QueuedAllocations["web"]
+	require.True(t, ok)
+	require.Zero(t, val)
 }
 
 // This test ensures that the scheduler correctly ignores ineligible
@@ -1233,13 +1186,13 @@ func TestSystemSched_JobConstraint_AddNode(t *testing.T) {
 	var node *structs.Node
 	node = mock.Node()
 	node.NodeClass = "Class-A"
-	node.ComputeClass()
+	require.NoError(t, node.ComputeClass())
 	require.Nil(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
 
 	var nodeB *structs.Node
 	nodeB = mock.Node()
 	nodeB.NodeClass = "Class-B"
-	nodeB.ComputeClass()
+	require.NoError(t, nodeB.ComputeClass())
 	require.Nil(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), nodeB))
 
 	// Make a job with two task groups, each constraint to a node class
@@ -1276,7 +1229,6 @@ func TestSystemSched_JobConstraint_AddNode(t *testing.T) {
 		JobID:       job.ID,
 		Status:      structs.EvalStatusPending,
 	}
-
 	require.Nil(t, h.State.UpsertEvals(structs.MsgTypeTestSetup, h.NextIndex(), []*structs.Evaluation{eval}))
 
 	require.Nil(t, h.Process(NewSystemScheduler, eval))
@@ -1325,7 +1277,7 @@ func TestSystemSched_JobConstraint_AddNode(t *testing.T) {
 	// Add a new node Class-B
 	var nodeBTwo *structs.Node
 	nodeBTwo = mock.Node()
-	nodeBTwo.ComputeClass()
+	require.NoError(t, nodeBTwo.ComputeClass())
 	nodeBTwo.NodeClass = "Class-B"
 	require.Nil(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), nodeBTwo))
 
@@ -1378,7 +1330,7 @@ func TestSystemSched_ExistingAllocNoNodes(t *testing.T) {
 	var node *structs.Node
 	// Create a node
 	node = mock.Node()
-	node.ComputeClass()
+	require.NoError(t, node.ComputeClass())
 	require.Nil(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
 
 	// Make a job
@@ -1409,6 +1361,7 @@ func TestSystemSched_ExistingAllocNoNodes(t *testing.T) {
 
 	// Mark the node as ineligible
 	node.SchedulingEligibility = structs.NodeSchedulingIneligible
+
 	// Evaluate the job
 	eval2 := &structs.Evaluation{
 		Namespace:   structs.DefaultNamespace,
@@ -1460,7 +1413,7 @@ func TestSystemSched_ConstraintErrors(t *testing.T) {
 	for _, tag := range []string{"aaaaaa", "foo", "foo", "foo"} {
 		node = mock.Node()
 		node.Meta["tag"] = tag
-		node.ComputeClass()
+		require.NoError(t, node.ComputeClass())
 		require.Nil(t, h.State.UpsertNode(structs.MsgTypeTestSetup, h.NextIndex(), node))
 	}
 
