@@ -137,7 +137,7 @@ func (s *SystemScheduler) process() (bool, error) {
 	s.ctx = NewEvalContext(s.state, s.plan, s.logger)
 
 	// Construct the placement stack
-	s.stack = NewSystemStack(s.ctx)
+	s.stack = NewSystemStack(s.sysbatch, s.ctx)
 	if !s.job.Stopped() {
 		s.stack.SetJob(s.job)
 	}

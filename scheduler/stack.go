@@ -1,6 +1,7 @@
 package scheduler
 
 import (
+	"fmt"
 	"math"
 	"time"
 
@@ -198,8 +199,12 @@ type SystemStack struct {
 	scoreNorm                  *ScoreNormalizationIterator
 }
 
-// NewSystemStack constructs a stack used for selecting system job placements.
-func NewSystemStack(ctx Context) *SystemStack {
+// NewSystemStack constructs a stack used for selecting system and sysbatch
+// job placements.
+//
+// sysbatch is used to determine which scheduler config option is used to
+// control the use of preemption.
+func NewSystemStack(sysbatch bool, ctx Context) *SystemStack {
 	// Create a new stack
 	s := &SystemStack{ctx: ctx}
 
@@ -260,8 +265,13 @@ func NewSystemStack(ctx Context) *SystemStack {
 	schedulerAlgorithm := schedConfig.EffectiveSchedulerAlgorithm()
 	enablePreemption := true
 	if schedConfig != nil {
-		enablePreemption = schedConfig.PreemptionConfig.SystemSchedulerEnabled
+		if sysbatch {
+			enablePreemption = schedConfig.PreemptionConfig.SysBatchSchedulerEnabled
+		} else {
+			enablePreemption = schedConfig.PreemptionConfig.SystemSchedulerEnabled
+		}
 	}
+	fmt.Println("enable Preemption:", enablePreemption)
 
 	s.binPack = NewBinPackIterator(ctx, rankSource, enablePreemption, 0, schedulerAlgorithm)
 
